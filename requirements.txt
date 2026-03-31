@@ -1,0 +1,23 @@
+# Data Extraction
+pymupdf
+camelot-py[cv]
+opencv-python-headless
+ghostscript
+
+# Storage
+qdrant-client
+sqlalchemy
+psycopg2-binary  # for PostgreSQL if needed
+
+# LLM & Reasoning
+langchain
+langchain-openai
+langchain-community
+openai
+tiktoken
+
+# Utils & ENV
+python-dotenv
+pandas
+tqdm
+pydantic
