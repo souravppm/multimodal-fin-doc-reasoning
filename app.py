@@ -1,104 +1,122 @@
 import streamlit as st
-import time
+import os
 from src.generation.rag_engine import FinancialRAG
+from src.ingestion.pdf_parser import FinancialDocumentParser
+from src.storage.sqlite_store import SQLiteTableStore
+import glob
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-# Page Configuration for a sleek enterprise look
-st.set_page_config(
-    page_title="Multimodal Financial RAG",
-    page_icon="🏦",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+# Page Config
+st.set_page_config(page_title="Financial RAG System", page_icon="📈", layout="wide")
 
-# Custom CSS for a professional look
-st.markdown("""
-<style>
-    /* Add any custom overriding CSS here */
-    .stChatMessage {
-        border-radius: 8px;
-        padding: 10px;
-        margin-bottom: 10px;
-    }
-</style>
-""", unsafe_allow_html=True)
-
-@st.cache_resource(show_spinner=False)
+# Initialize Engine
+@st.cache_resource
 def get_rag_engine():
-    """Initializes the Financial RAG engine once and caches it."""
-    try:
-        engine = FinancialRAG()
-        return engine
-    except Exception as e:
-        st.error(f"Failed to initialize RAG Engine: {e}")
-        return None
+    return FinancialRAG()
 
-def init_session_state():
-    """Initialize chat history in session state."""
-    if "messages" not in st.session_state:
-        st.session_state.messages = [
-            {"role": "assistant", "content": "Welcome! I am your Multimodal Financial Assistant. How can I help you analyze the reports today?"}
-        ]
+rag = get_rag_engine()
 
-def main():
-    init_session_state()
+# Sidebar
+with st.sidebar:
+    st.title("⚙️ System Configuration")
     
-    # Sidebar Configuration
-    with st.sidebar:
-        st.header("🏦 Multimodal Financial RAG")
-        st.markdown(
-            "An enterprise-grade, fully local Retrieval-Augmented Generation (RAG) system "
-            "designed to extract and reason over complex financial documents using "
-            "**modality-aware architecture**."
-        )
-        st.divider()
-        if st.button("🗑️ Clear Chat History", type="primary", use_container_width=True):
-            st.session_state.messages = [
-                {"role": "assistant", "content": "Chat history cleared. How can I help you?"}
-            ]
-            st.rerun()
-            
-        st.markdown("---")
-        st.caption("Powered by Ollama (Llama 3.2), Qdrant & SQLite")
-
-    # Main UI Header
-    st.title("Financial Document Reasoning")
-    st.markdown("Ask natural language questions regarding the embedded structured and unstructured financial data.")
-
-    # Load Engine
-    rag_engine = get_rag_engine()
-    if not rag_engine:
-        st.stop()
-
-    # Display Chat History
-    for message in st.session_state.messages:
-        avatar = "🤖" if message["role"] == "assistant" else "👤"
-        with st.chat_message(message["role"], avatar=avatar):
-            st.markdown(message["content"])
-
-    # Chat Input Handle
-    if prompt := st.chat_input("Ask a question about the financial report..."):
-        # Display user input
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user", avatar="👤"):
-            st.markdown(prompt)
-
-        # Generate and display assistant response
-        with st.chat_message("assistant", avatar="🤖"):
-            with st.spinner("⏳ Thinking, routing, and retrieving context..."):
+    # Model Selector
+    st.subheader("🤖 AI Engine")
+    model_choice = st.radio(
+        "Select Model:",
+        ("Ollama (Local)", "GPT-4o-mini (Cloud)"),
+        help="Choose between free local processing or highly accurate cloud processing."
+    )
+    
+    st.divider()
+    
+    # Document Upload
+    st.subheader("📄 Upload Document")
+    uploaded_file = st.file_uploader("Upload a Financial PDF", type="pdf")
+    
+    if st.button("Process Document", type="primary"):
+        if uploaded_file is not None:
+            with st.spinner("Processing document... This may take a minute."):
                 try:
-                    start_time = time.time()
-                    answer = rag_engine.answer_question(prompt)
-                    elapsed_time = time.time() - start_time
+                    # 1. Save uploaded file
+                    os.makedirs("data/raw", exist_ok=True)
+                    file_path = f"data/raw/{uploaded_file.name}"
+                    with open(file_path, "wb") as f:
+                        f.write(uploaded_file.getbuffer())
                     
-                    st.markdown(answer)
-                    st.caption(f"⏱️ Response generated in {elapsed_time:.2f}s")
+                    # 2. Ingestion (Text & Tables)
+                    st.info("Extracting tables and text...")
+                    parser = FinancialDocumentParser(file_path)
+                    doc_map = parser.process_document()
+                    
+                    import fitz
+                    pdf_doc = fitz.open(file_path)
+                    text_content = "\n".join([page.get_text("text") for page in pdf_doc])
+                    
+                    # 3. Load tables to SQLite
+                    st.info("Building SQL database...")
+                    sqlite_store = SQLiteTableStore("data/processed/financial_tables.db")
+                    doc_name = parser.doc_name
+                    for page in doc_map.get("pages", []):
+                        for table in page.get("tables", []):
+                            csv_path = table.get("path")
+                            table_id = table.get("table_id")
+                            page_num = table.get("page_number")
+                            table_name = f"{doc_name}_p{page_num}_{table_id}"
+                            
+                            if os.path.exists(csv_path):
+                                sqlite_store.load_csv_to_table(csv_path, table_name)
+                    
+                    # 4. Insert text to Qdrant
+                    st.info("Building Vector database...")
+                    text_splitter = RecursiveCharacterTextSplitter(chunk_size=700, chunk_overlap=100)
+                    chunks = text_splitter.split_text(text_content)
+                    
+                    from qdrant_client.http import models as qmodels
+                    # Ensure collection exists and upsert
+                    rag.qc.recreate_collection(
+                        collection_name=rag.collection_name,
+                        vectors_config=qmodels.VectorParams(size=rag.embedder.get_sentence_embedding_dimension(), distance=qmodels.Distance.COSINE)
+                    )
+                    
+                    import uuid
+                    embeddings = rag.embedder.encode(chunks).tolist()
+                    points = [
+                        qmodels.PointStruct(id=str(uuid.uuid4()), vector=emb, payload={"text": chunk})
+                        for chunk, emb in zip(chunks, embeddings)
+                    ]
+                    rag.qc.upsert(collection_name=rag.collection_name, points=points)
+                    
+                    st.success("✅ Document processed successfully!")
                 except Exception as e:
-                    error_msg = f"An internal error occurred: {str(e)}"
-                    st.error(error_msg)
-                    answer = error_msg
-        
-        # Save assistant answer
-        st.session_state.messages.append({"role": "assistant", "content": answer})
+                    st.error(f"Error processing document: {e}")
+        else:
+            st.warning("Please upload a PDF first.")
+            
+    st.divider()
+    if st.button("🗑️ Clear Chat History"):
+        st.session_state.messages = []
+        st.rerun()
 
-if __name__ == "__main__":
-    main()
+# Main Chat UI
+st.title("📈 Multimodal Financial Document Assistant")
+st.caption("Ask questions about revenue, tables, or text from the uploaded report.")
+
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
+
+if prompt := st.chat_input("E.g., What was the total revenue in Q3?"):
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
+
+    with st.chat_message("assistant"):
+        with st.spinner(f"Thinking using {model_choice}..."):
+            # Pass the model choice to the engine
+            response = rag.answer_question(prompt, model_choice=model_choice)
+        st.markdown(response)
+        st.session_state.messages.append({"role": "assistant", "content": response})

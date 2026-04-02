@@ -1,0 +1,15 @@
+
+
+services:
+  financial-rag:
+    build: .
+    container_name: multimodal-fin-rag
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data
+      - ./qdrant_storage:/app/qdrant_storage
+    env_file:
+      - .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

@@ -1,23 +1,32 @@
 import os
 import logging
 from openai import OpenAI
-from src.storage.qdrant_store import QdrantVectorStore
+from qdrant_client import QdrantClient
+from sentence_transformers import SentenceTransformer
 from src.storage.sqlite_store import SQLiteTableStore
 from src.retrieval.router import QueryRouter
+from dotenv import load_dotenv
 
+load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class FinancialRAG:
     def __init__(self):
         logger.info("Initializing components for FinancialRAG...")
-        self.qdrant = QdrantVectorStore()
+        self.qc = QdrantClient(path="qdrant_storage/")
+        self.embedder = SentenceTransformer('all-MiniLM-L6-v2')
         self.collection_name = 'test_financial_reports'
         self.sqlite = SQLiteTableStore(db_path="data/processed/financial_tables.db")
         self.router = QueryRouter()
         
-        # Ollama Setup
-        self.llm = OpenAI(base_url="http://localhost:11434/v1", api_key="ollama")
+        # Initialize both clients
+        self.ollama_client = OpenAI(base_url="http://localhost:11434/v1", api_key="ollama")
+        
+        # Check if OpenAI API key exists for GPT-4o-mini
+        openai_key = os.environ.get("OPENAI_API_KEY")
+        self.openai_client = OpenAI(api_key=openai_key) if openai_key else None
+        
         logger.info("FinancialRAG initialized successfully.")
 
     def get_database_schema(self) -> str:
@@ -35,8 +44,20 @@ class FinancialRAG:
             logger.error(f"Error getting schema: {e}")
             return "No schema available."
 
-    def answer_question(self, user_query: str) -> str:
+    def answer_question(self, user_query: str, model_choice: str = "Ollama (Local)") -> str:
         try:
+            # Set the active client and model based on user choice
+            if model_choice == "GPT-4o-mini (Cloud)":
+                if not self.openai_client:
+                    return "Error: OPENAI_API_KEY is not set in the .env file."
+                active_client = self.openai_client
+                active_model = "gpt-4o-mini"
+            else:
+                active_client = self.ollama_client
+                active_model = "llama3.2"
+
+            logger.info(f"Using Model: {active_model}")
+
             # Step 1: Route the Query
             route_decision = self.router.route_query(user_query)
             route = route_decision.get('route', 'text')
@@ -44,18 +65,17 @@ class FinancialRAG:
             
             context = ""
 
-            # Step 2: Retrieve Context based on Route
+            # Step 2: Retrieve Context
             if route == 'text':
                 try:
-                    # ✅ FIXED: Using the qdrant wrapper's correct search method
-                    results = self.qdrant.search(collection_name=self.collection_name, query_text=user_query, limit=3)
-                    
-                    # ✅ FIXED: Handling pure Qdrant payload extraction
-                    context_chunks = []
-                    for res in results:
-                         if hasattr(res, 'payload') and isinstance(res.payload, dict):
-                              text = res.payload.get('text', '')
-                              if text: context_chunks.append(text)
+                    query_vector = self.embedder.encode(user_query).tolist()
+                    response = self.qc.query_points(
+                        collection_name=self.collection_name, 
+                        query=query_vector, 
+                        limit=3
+                    )
+                    results = response.points
+                    context_chunks = [res.payload.get('text', '') for res in results if hasattr(res, 'payload')]
                     context = "\n".join(context_chunks)
                 except Exception as e:
                     logger.error(f"Text retrieval failed: {e}")
@@ -63,13 +83,10 @@ class FinancialRAG:
 
             elif route == 'table':
                 schema = self.get_database_schema()
-                sql_prompt = f"""You are a SQLite expert. Given this schema:
-{schema}
-Write a strict SQL query to answer this user question: '{user_query}'
-Return ONLY the raw SQL query. Do not use markdown blocks like ```sql. Do not add explanations."""
+                sql_prompt = f"You are a SQLite expert. Schema:\n{schema}\nWrite a strict SQL query for: '{user_query}'. Return ONLY raw SQL. No markdown blocks."
                 
-                sql_response = self.llm.chat.completions.create(
-                    model="llama3.2",
+                sql_response = active_client.chat.completions.create(
+                    model=active_model,
                     messages=[{"role": "user", "content": sql_prompt}],
                     temperature=0
                 )
@@ -84,13 +101,13 @@ Return ONLY the raw SQL query. Do not use markdown blocks like ```sql. Do not ad
                     context = f"Failed to execute SQL: {raw_sql}"
 
             elif route == 'image':
-                context = "Visual chart reasoning is not fully implemented. Please refer to the text or tables."
+                context = "Visual chart reasoning is not fully implemented yet."
 
             # Step 3: Final Generation
             system_prompt = "You are an expert financial analyst. Answer the user's question clearly based STRICTLY on the provided Context. If the answer is not in the Context, say 'I don't have enough data to answer this'. Do not hallucinate."
             
-            final_response = self.llm.chat.completions.create(
-                model="llama3.2",
+            final_response = active_client.chat.completions.create(
+                model=active_model,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {user_query}"}
@@ -101,4 +118,4 @@ Return ONLY the raw SQL query. Do not use markdown blocks like ```sql. Do not ad
 
         except Exception as e:
             logger.error(f"Pipeline error: {e}")
-            return "An error occurred while processing your request."
+            return f"An error occurred: {str(e)}"
