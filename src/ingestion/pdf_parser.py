@@ -101,8 +101,8 @@ class FinancialDocumentParser:
         
         try:
             # Note: flavor='lattice' for grid-based tables, 'stream' for whitespace-based.
-            # We use 'lattice' as default but one could implement auto-detection logic.
-            tables = camelot.read_pdf(str(self.pdf_path), pages='all', flavor='lattice')
+            # flavor='stream' ব্যবহার করছি দাগ ছাড়া (borderless) টেবিলের জন্য
+            tables = camelot.read_pdf(str(self.pdf_path), pages='all', flavor='stream')
             
             for i, table in enumerate(tables):
                 table_id = f"table_{i+1}"

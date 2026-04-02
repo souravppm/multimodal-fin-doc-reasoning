@@ -9,7 +9,9 @@ logger = logging.getLogger(__name__)
 class QdrantVectorStore:
     def __init__(self, path="qdrant_storage/"):
         self.client = QdrantClient(path=path)
-        self.model = SentenceTransformer('all-MiniLM-L6-v2')
+        import torch
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.model = SentenceTransformer('all-MiniLM-L6-v2', device=device)
         self.vector_size = self.model.get_sentence_embedding_dimension()
 
     def create_collection(self, collection_name: str):

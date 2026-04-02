@@ -21,3 +21,16 @@ qdrant_storage/
 
 # Jupyter Notebook checkpoints
 .ipynb_checkpoints
+
+# Logs and temporary files
+*.log
+docker_logs.txt
+docker_status.txt
+.DS_Store
+Thumbs.db
+.gemini/
+.agents/
+.agent/
+_agents/
+_agent/
+tmp/

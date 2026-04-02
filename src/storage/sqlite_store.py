@@ -59,15 +59,23 @@ class SQLiteTableStore:
             # Read CSV using pandas
             df = pd.read_csv(csv_path)
 
-            # Clean column names
-            # 1. Strip whitespace
-            # 2. Replace spaces with underscores
-            # 3. Remove special characters (keep only alphanumeric and underscores)
             cleaned_columns = []
-            for col in df.columns:
+            for i, col in enumerate(df.columns):
                 col_str = str(col).strip()
                 col_str = col_str.replace(' ', '_')
                 col_str = re.sub(r'[^a-zA-Z0-9_]', '', col_str)
+                
+                # Prevent empty column names
+                if not col_str:
+                    col_str = f"col_{i}"
+                
+                # Prevent duplicate column names
+                original_col_str = col_str
+                counter = 1
+                while col_str in cleaned_columns:
+                    col_str = f"{original_col_str}_{counter}"
+                    counter += 1
+                    
                 cleaned_columns.append(col_str)
             
             df.columns = cleaned_columns

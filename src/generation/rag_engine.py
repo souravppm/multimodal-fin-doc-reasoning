@@ -15,13 +15,16 @@ class FinancialRAG:
     def __init__(self):
         logger.info("Initializing components for FinancialRAG...")
         self.qc = QdrantClient(path="qdrant_storage/")
-        self.embedder = SentenceTransformer('all-MiniLM-L6-v2')
+        import torch
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.embedder = SentenceTransformer('all-MiniLM-L6-v2', device=device)
         self.collection_name = 'test_financial_reports'
         self.sqlite = SQLiteTableStore(db_path="data/processed/financial_tables.db")
         self.router = QueryRouter()
         
         # Initialize both clients
-        self.ollama_client = OpenAI(base_url="http://localhost:11434/v1", api_key="ollama")
+        ollama_base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+        self.ollama_client = OpenAI(base_url=ollama_base_url, api_key="ollama")
         
         # Check if OpenAI API key exists for GPT-4o-mini
         openai_key = os.environ.get("OPENAI_API_KEY")
@@ -35,10 +38,11 @@ class FinancialRAG:
             tables_df = self.sqlite.execute_query(query)
             schema = ""
             for table in tables_df['name']:
-                col_query = f"PRAGMA table_info({table});"
+                col_query = f"PRAGMA table_info('{table}');"
                 cols_df = self.sqlite.execute_query(col_query)
                 cols = ", ".join(cols_df['name'].tolist())
-                schema += f"Table: {table} | Columns: {cols}\n"
+                # Provide the table name in double quotes to the LLM so it generates valid SQL if it starts with a number
+                schema += f'Table: "{table}" | Columns: {cols}\n'
             return schema
         except Exception as e:
             logger.error(f"Error getting schema: {e}")
@@ -83,7 +87,14 @@ class FinancialRAG:
 
             elif route == 'table':
                 schema = self.get_database_schema()
-                sql_prompt = f"You are a SQLite expert. Schema:\n{schema}\nWrite a strict SQL query for: '{user_query}'. Return ONLY raw SQL. No markdown blocks."
+                sql_prompt = (f"You are a SQLite expert. Schema:\n{schema}\n"
+                              f"Write a strict SQL query for: '{user_query}'. "
+                              f"IMPORTANT: If a table name starts with a number, you MUST enclose it in double quotes! "
+                              f"HINT FOR PDF TABLES: Financial metrics like 'Revenue', 'Income', or 'Expense' are almost NEVER column names! "
+                              f"They are usually row values in the first column (like 'Unnamed_0', 'col_0'). "
+                              f"Instead of SELECT Revenue, you should do: SELECT * FROM \"table_name\" WHERE \"Unnamed_0\" LIKE '%Revenue%' OR \"col_0\" LIKE '%Revenue%'; "
+                              f"If you are unsure which table contains the data, try to guess the most likely table based on the columns. "
+                              f"Return ONLY raw SQL. No markdown blocks.")
                 
                 sql_response = active_client.chat.completions.create(
                     model=active_model,
@@ -95,10 +106,25 @@ class FinancialRAG:
                 
                 try:
                     result_df = self.sqlite.execute_query(raw_sql)
+                    if result_df.empty:
+                        raise ValueError("SQL returned empty results.")
                     context = f"SQL Result:\n{result_df.to_string()}"
                 except Exception as e:
-                    logger.error(f"SQL execution failed: {e}")
-                    context = f"Failed to execute SQL: {raw_sql}"
+                    logger.warning(f"SQL failed or was empty ({e}). Falling back to Vector Search...")
+                    try:
+                        # Fallback to Text Vector Search
+                        query_vector = self.embedder.encode(user_query).tolist()
+                        response = self.qc.query_points(
+                            collection_name=self.collection_name, 
+                            query=query_vector, 
+                            limit=3
+                        )
+                        results = response.points
+                        context_chunks = [res.payload.get('text', '') for res in results if hasattr(res, 'payload')]
+                        context = "SQL Table search failed. Using Text context instead:\n" + "\n".join(context_chunks)
+                    except Exception as fallback_e:
+                        logger.error(f"Fallback Text retrieval failed: {fallback_e}")
+                        context = "Could not retrieve context from SQL or Text fallback."
 
             elif route == 'image':
                 context = "Visual chart reasoning is not fully implemented yet."
