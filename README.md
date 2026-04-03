@@ -115,6 +115,13 @@ Comprehensive test scripts are provided to ensure the stability of the reasoning
 ## 🛡️ Privacy & Security
 If running in **Local Mode** with Ollama, no data leaves your machine. Your documents are processed, embedded, and reasoned over entirely locally. `qdrant_storage/`, `data/`, and `.env` files are correctly excluded from version control to prevent accidental data leaks.
 
+## 🔮 Future Roadmap & Vision
+We are actively planning to push the boundaries of multimodal logic. Upcoming features include:
+- **Vision-Language Integration (Image & Graph Mining):** Extending the Router to parse, understand, and reason over visual financial data—such as analytical charts, bar graphs, and infographic timelines—using advanced Vision models like GPT-4o.
+- **Dynamic Chart Generation in UI:** Extracting numerical data via Text-to-SQL to render beautiful, interactive graphs (via Plotly/ECharts) right inside the Streamlit view instead of just raw text.
+- **Citation & Source Highlighting:** Adding the capability for the UI to display bounding boxes over the exact snippet and page of the PDF that backs up the financial claim.
+- **Advanced Agentic Workflows:** Moving from a standard RAG to an autonomous Financial Agent capable of compiling full peer-comparison reports across multiple quarters.
+
 ---
 <div align="center">
   <i>Built for high-stakes financial analysis.</i>
