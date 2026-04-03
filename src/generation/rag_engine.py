@@ -48,7 +48,7 @@ class FinancialRAG:
             logger.error(f"Error getting schema: {e}")
             return "No schema available."
 
-    def answer_question(self, user_query: str, model_choice: str = "Ollama (Local)") -> str:
+    def answer_question(self, user_query: str, model_choice: str = "Ollama (Local)"):
         try:
             # Set the active client and model based on user choice
             if model_choice == "GPT-4o-mini (Cloud)":
@@ -76,7 +76,7 @@ class FinancialRAG:
                     response = self.qc.query_points(
                         collection_name=self.collection_name, 
                         query=query_vector, 
-                        limit=3
+                        limit=10
                     )
                     results = response.points
                     context_chunks = [res.payload.get('text', '') for res in results if hasattr(res, 'payload')]
@@ -117,7 +117,7 @@ class FinancialRAG:
                         response = self.qc.query_points(
                             collection_name=self.collection_name, 
                             query=query_vector, 
-                            limit=3
+                            limit=10
                         )
                         results = response.points
                         context_chunks = [res.payload.get('text', '') for res in results if hasattr(res, 'payload')]
@@ -136,10 +136,23 @@ class FinancialRAG:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {user_query}"}
                 ],
-                temperature=0.2
+                temperature=0.2,
+                stream=True
             )
-            return final_response.choices[0].message.content.strip()
+            
+            def stream_response():
+                try:
+                    for chunk in final_response:
+                        if chunk.choices and chunk.choices[0].delta.content is not None:
+                            yield chunk.choices[0].delta.content
+                except Exception as stream_e:
+                    logger.error(f"Streaming error: {stream_e}")
+                    yield f"\n[Streaming error occurred]"
+                    
+            return stream_response(), context
 
         except Exception as e:
             logger.error(f"Pipeline error: {e}")
-            return f"An error occurred: {str(e)}"
+            def error_response():
+                yield f"An error occurred: {str(e)}"
+            return error_response(), "No context available due to error."
