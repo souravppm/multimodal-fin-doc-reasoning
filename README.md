@@ -70,6 +70,12 @@ multimodal-fin-doc-reasoning/
     └── storage/               # Qdrant Vector DB & SQLite Table integrations
 ```
 
+## 📄 Recommended Document Types
+
+To get the best results out of this reasoning engine, try uploading the following types of English PDF documents:
+- **Annual Reports (10-K) & Quarterly Reports (10-Q):** These can be freely downloaded from the *Investor Relations* websites of global companies (e.g., Tesla, Apple, Microsoft). They contain dense financial paragraphs and highly complex numerical tables perfectly suited for this system's retrieval capabilities.
+- **Research & Audit Reports:** Any professional PDF report containing structured financial data, such as *Balance Sheets*, *Income Statements*, or *Cash Flow Statements*.
+
 ## ⚙️ Getting Started
 
 ### Prerequisites
