@@ -34,11 +34,11 @@ class QueryRouter:
         
         system_prompt = (
             "You are a financial query classifier. You must classify the given user query "
-            "into exactly one of these three categories:\n"
+            "into exactly one of these two categories:\n"
             "- \"text\": If the question asks for explanations, policies, summaries, or general text information.\n"
-            "- \"table\": If the question asks for exact numerical values, financial metrics, comparisons across quarters, or tabular data.\n"
-            "- \"image\": If the question asks for visual trends, charts, or graphs.\n\n"
-            "You MUST return ONLY a raw JSON string e.g. {\"route\": \"text\"} or {\"route\": \"table\"} or {\"route\": \"image\"}. "
+            "- \"table\": If the question asks for exact numerical values, financial metrics, comparisons across quarters, or tabular data.\n\n"
+            "HINT: If a query involves charts, trends, or visual representation, always route it to \"text\" so it can be handled by standard retrieval. "
+            "You MUST return ONLY a raw JSON string e.g. {\"route\": \"text\"} or {\"route\": \"table\"}. "
             "Do NOT include markdown blocks (no ```json). Do NOT add any extra text or explanation."
         )
 

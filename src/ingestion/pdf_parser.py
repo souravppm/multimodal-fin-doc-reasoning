@@ -55,34 +55,15 @@ class FinancialDocumentParser:
                         "type": "text" if b[6] == 0 else "image/other"
                     })
                 
-                # Extract images
-                image_list = page.get_images(full=True)
-                images_on_page = []
-                
-                for img_index, img in enumerate(image_list):
-                    xref = img[0]
-                    base_image = doc.extract_image(xref)
-                    image_bytes = base_image["image"]
-                    image_ext = base_image["ext"]
-                    
-                    # Generate a unique filename for the image
-                    img_filename = f"{self.doc_name}_p{page_num+1}_img{img_index+1}_{uuid.uuid4().hex[:8]}.{image_ext}"
-                    img_path = output_path / img_filename
-                    
-                    with open(img_path, "wb") as f:
-                        f.write(image_bytes)
-                    
-                    images_on_page.append(str(img_path))
-                
                 page_info = {
                     "page_number": page_num + 1,
                     "text_blocks": text_content,
-                    "image_paths": images_on_page
+                    "image_paths": [] # Imaging disabled
                 }
                 page_data.append(page_info)
                 
             doc.close()
-            logger.info(f"Successfully extracted text and {sum(len(p['image_paths']) for p in page_data)} images from {self.pdf_path.name}")
+            logger.info(f"Successfully extracted text from {self.pdf_path.name}")
             
         except Exception as e:
             logger.error(f"Error during text/image extraction: {str(e)}")
@@ -92,40 +73,68 @@ class FinancialDocumentParser:
 
     def extract_tables(self, output_table_dir: str) -> List[Dict]:
         """
-        Extracts tables from the PDF using Camelot.
+        Extracts tables from the PDF using Camelot with a dynamic lattice/stream fallback strategy.
         """
         output_path = Path(output_table_dir)
         output_path.mkdir(parents=True, exist_ok=True)
         
         table_metadata = []
+        global_table_counter = 1
         
         try:
-            # Note: flavor='lattice' for grid-based tables, 'stream' for whitespace-based.
-            # flavor='stream' ব্যবহার করছি দাগ ছাড়া (borderless) টেবিলের জন্য
-            tables = camelot.read_pdf(str(self.pdf_path), pages='all', flavor='stream')
+            # Determine total pages using fitz
+            doc = fitz.open(self.pdf_path)
+            total_pages = len(doc)
+            doc.close()
             
-            for i, table in enumerate(tables):
-                table_id = f"table_{i+1}"
-                page_num = table.page
-                
-                # Save table to CSV
-                table_filename = f"{self.doc_name}_p{page_num}_{table_id}.csv"
-                table_file_path = output_path / table_filename
-                table.to_csv(str(table_file_path))
-                
-                table_metadata.append({
-                    "table_id": table_id,
-                    "page_number": page_num,
-                    "path": str(table_file_path),
-                    "confidence": table.accuracy,
-                    "parsing_report": table.parsing_report
-                })
-                
-            logger.info(f"Successfully extracted {len(tables)} tables from {self.pdf_path.name}")
+            for page_num in range(1, total_pages + 1):
+                try:
+                    # Try lattice (grid-based) first
+                    tables = camelot.read_pdf(str(self.pdf_path), pages=str(page_num), flavor='lattice')
+                    
+                    # If lattice yields no tables or tables with poor accuracy, try stream (whitespace-based)
+                    if not tables or all(t.accuracy < 70 for t in tables):
+                        stream_tables = camelot.read_pdf(str(self.pdf_path), pages=str(page_num), flavor='stream')
+                        
+                        if stream_tables:
+                            if not tables:
+                                tables = stream_tables
+                            else:
+                                # Pick stream if its average accuracy is significantly better
+                                avg_lattice = sum(t.accuracy for t in tables) / len(tables) if tables else 0
+                                avg_stream = sum(t.accuracy for t in stream_tables) / len(stream_tables) if stream_tables else 0
+                                if avg_stream > avg_lattice + 10:
+                                    tables = stream_tables
+
+                    for table in tables:
+                        # Skip garbage tables to prevent injecting noise into SQLite RAG
+                        if getattr(table, 'accuracy', 0) < 50:
+                            continue
+                            
+                        table_id = f"table_{global_table_counter}"
+                        global_table_counter += 1
+                        
+                        # Save table to CSV
+                        table_filename = f"{self.doc_name}_p{page_num}_{table_id}.csv"
+                        table_file_path = output_path / table_filename
+                        table.to_csv(str(table_file_path))
+                        
+                        table_metadata.append({
+                            "table_id": table_id,
+                            "page_number": page_num,
+                            "path": str(table_file_path),
+                            "confidence": table.accuracy,
+                            "parsing_report": table.parsing_report
+                        })
+                except Exception as e:
+                    logger.debug(f"Error parsing tables on page {page_num}: {e}")
+                    continue
+                    
+            logger.info(f"Successfully extracted {len(table_metadata)} tables from {self.pdf_path.name}")
             
         except Exception as e:
-            logger.warning(f"Error during table extraction (Camelot): {str(e)}. This might happen if no tables are found or Ghostscript is missing.")
-            # We don't necessarily want to crash the whole pipeline if tables fail
+            logger.warning(f"Error during table extraction setup (likely Ghostscript issue): {str(e)}")
+            # We don't crash the pipeline if table extraction fails completely
             return []
             
         return table_metadata
@@ -138,11 +147,10 @@ class FinancialDocumentParser:
         
         # Define output sub-directories based on document name
         base_processed_dir = Path("data/processed") / self.doc_name
-        image_dir = base_processed_dir / "images"
         table_dir = base_processed_dir / "tables"
         
         # Run extractions
-        page_data = self.extract_text_and_images(str(image_dir))
+        page_data = self.extract_text_and_images(str(base_processed_dir)) # Images no longer extracted
         table_data = self.extract_tables(str(table_dir))
         
         # Merge table pointers into page data

@@ -126,8 +126,6 @@ class FinancialRAG:
                         logger.error(f"Fallback Text retrieval failed: {fallback_e}")
                         context = "Could not retrieve context from SQL or Text fallback."
 
-            elif route == 'image':
-                context = "Visual chart reasoning is not fully implemented yet."
 
             # Step 3: Final Generation
             system_prompt = "You are an expert financial analyst. Answer the user's question clearly based STRICTLY on the provided Context. If the answer is not in the Context, say 'I don't have enough data to answer this'. Do not hallucinate."
