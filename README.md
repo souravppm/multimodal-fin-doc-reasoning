@@ -19,6 +19,15 @@ This system leverages **Intelligent Query Routing** to decide whether a user's q
 
 *Note: Vision-based processing has been deprecated in favor of a highly optimized Text/Table hybrid paradigm ensuring robust retrieval stability.*
 
+## 📸 Screenshots
+
+<div align="center">
+  <img src="Screenshot/Screenshot%202026-04-03%20152546.png" width="800" alt="UI Screenshot 1"/><br/><br/>
+  <img src="Screenshot/Screenshot%202026-04-03%20152626.png" width="800" alt="UI Screenshot 2"/><br/><br/>
+  <img src="Screenshot/Screenshot%202026-04-03%20153459.png" width="800" alt="UI Screenshot 3"/><br/><br/>
+  <img src="Screenshot/Screenshot%202026-04-03%20153614.png" width="800" alt="UI Screenshot 4"/>
+</div>
+
 ## ✨ Key Features
 
 - **Hybrid Routing Pipeline:** Automatically routes queries to the **Text Engine** (semantic search) or the **Table Engine** (Text-to-SQL) based on the intent of the prompt.
@@ -72,7 +81,7 @@ multimodal-fin-doc-reasoning/
 
 1. **Clone the repository:**
    ```bash
-   git clone <your-repo-url>
+   git clone https://github.com/souravppm/multimodal-fin-doc-reasoning
    cd multimodal-fin-doc-reasoning
    ```
 2. **Create a virtual environment:**
@@ -117,7 +126,7 @@ If running in **Local Mode** with Ollama, no data leaves your machine. Your docu
 
 ## 🔮 Future Roadmap & Vision
 We are actively planning to push the boundaries of multimodal logic. Upcoming features include:
-- **Vision-Language Integration (Image & Graph Mining):** Extending the Router to parse, understand, and reason over visual financial data—such as analytical charts, bar graphs, and infographic timelines—using advanced Vision models like GPT-4o.
+- **Vision-Language Integration (Image & Graph Mining):** Extending the Router to parse, understand, and reason over visual financial data such as analytical charts, bar graphs, and infographic timelines using advanced Vision models like GPT-4o.
 - **Dynamic Chart Generation in UI:** Extracting numerical data via Text-to-SQL to render beautiful, interactive graphs (via Plotly/ECharts) right inside the Streamlit view instead of just raw text.
 - **Citation & Source Highlighting:** Adding the capability for the UI to display bounding boxes over the exact snippet and page of the PDF that backs up the financial claim.
 - **Advanced Agentic Workflows:** Moving from a standard RAG to an autonomous Financial Agent capable of compiling full peer-comparison reports across multiple quarters.
