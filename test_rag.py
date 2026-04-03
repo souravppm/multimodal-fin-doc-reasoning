@@ -22,8 +22,11 @@ def main():
         for i, query in enumerate(test_queries, 1):
             print(f"👤 Question [{i}]: {query}")
             print("⏳ AI is thinking, routing, and retrieving context...")
-            answer = rag.answer_question(query)
-            print(f"\n🤖 AI Answer:\n{answer}\n")
+            print(f"\n🤖 AI Answer: ", end="")
+            response_generator, context = rag.answer_question(query)
+            for chunk in response_generator:
+                print(chunk, end="", flush=True)
+            print(f"\n\n🔍 Sources:\n{context}\n")
             print("-" * 60)
             
         # ২. এরপর তুমি নিজে লাইভ প্রশ্ন করতে পারবে!
@@ -35,8 +38,11 @@ def main():
                 break
             
             print("⏳ Thinking...")
-            answer = rag.answer_question(user_input)
-            print(f"\n🤖 AI Answer:\n{answer}")
+            print(f"\n🤖 AI Answer: ", end="")
+            response_generator, context = rag.answer_question(user_input)
+            for chunk in response_generator:
+                print(chunk, end="", flush=True)
+            print(f"\n\n🔍 Sources:\n{context}\n")
             print("-" * 60)
 
     except Exception as e:
