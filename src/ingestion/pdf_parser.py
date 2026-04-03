@@ -30,7 +30,7 @@ class FinancialDocumentParser:
             "pages": []
         }
 
-    def extract_text_and_images(self, output_image_dir: str) -> List[Dict]:
+    def extract_text_and_images(self, output_image_dir: str, max_pages: int = None, progress_callback=None) -> List[Dict]:
         """
         Extracts text blocks and images from each page using PyMuPDF.
         """
@@ -41,7 +41,12 @@ class FinancialDocumentParser:
         
         try:
             doc = fitz.open(self.pdf_path)
-            for page_num in range(len(doc)):
+            total_pages = len(doc)
+            limit = min(total_pages, max_pages) if max_pages else total_pages
+            
+            for page_num in range(limit):
+                if progress_callback:
+                    progress_callback("text", page_num + 1, limit)
                 page = doc.load_page(page_num)
                 
                 # Extract text blocks
@@ -71,7 +76,7 @@ class FinancialDocumentParser:
             
         return page_data
 
-    def extract_tables(self, output_table_dir: str) -> List[Dict]:
+    def extract_tables(self, output_table_dir: str, max_pages: int = None, progress_callback=None) -> List[Dict]:
         """
         Extracts tables from the PDF using Camelot with a dynamic lattice/stream fallback strategy.
         """
@@ -87,7 +92,10 @@ class FinancialDocumentParser:
             total_pages = len(doc)
             doc.close()
             
-            for page_num in range(1, total_pages + 1):
+            limit = min(total_pages, max_pages) if max_pages else total_pages
+            for page_num in range(1, limit + 1):
+                if progress_callback:
+                    progress_callback("tables", page_num, limit)
                 try:
                     # Try lattice (grid-based) first
                     tables = camelot.read_pdf(str(self.pdf_path), pages=str(page_num), flavor='lattice')
@@ -139,7 +147,7 @@ class FinancialDocumentParser:
             
         return table_metadata
 
-    def process_document(self) -> Dict:
+    def process_document(self, max_pages: int = None, progress_callback=None) -> Dict:
         """
         Orchestrates the extraction process and returns a unified document map.
         """
@@ -150,8 +158,8 @@ class FinancialDocumentParser:
         table_dir = base_processed_dir / "tables"
         
         # Run extractions
-        page_data = self.extract_text_and_images(str(base_processed_dir)) # Images no longer extracted
-        table_data = self.extract_tables(str(table_dir))
+        page_data = self.extract_text_and_images(str(base_processed_dir), max_pages=max_pages, progress_callback=progress_callback) # Images no longer extracted
+        table_data = self.extract_tables(str(table_dir), max_pages=max_pages, progress_callback=progress_callback)
         
         # Merge table pointers into page data
         for page in page_data:
